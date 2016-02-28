@@ -34,8 +34,8 @@
       <file leaf-file-name="client.java" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/client.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state vertical-scroll-proportion="0.30042017">
-              <caret line="145" column="49" selection-start-line="145" selection-start-column="49" selection-end-line="145" selection-end-column="49" />
+            <state vertical-scroll-proportion="0.6407563">
+              <caret line="162" column="28" selection-start-line="162" selection-start-column="28" selection-end-line="162" selection-end-column="28" />
               <folding>
                 <element signature="imports" expanded="true" />
               </folding>
@@ -554,8 +554,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/client.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state vertical-scroll-proportion="0.30042017">
-          <caret line="145" column="49" selection-start-line="145" selection-start-column="49" selection-end-line="145" selection-end-column="49" />
+        <state vertical-scroll-proportion="0.6407563">
+          <caret line="162" column="28" selection-start-line="162" selection-start-column="28" selection-end-line="162" selection-end-column="28" />
           <folding>
             <element signature="imports" expanded="true" />
           </folding>

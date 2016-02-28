@@ -145,31 +145,41 @@ public class client
                 int size = 0;
                 myClient.currentPacketNumber = 0;
 
-                for (int i = 0; i < file_data.length(); i += 30)
+                //check to see if within window size
+                if(true)
                 {
-                    //clear out the send data array before every packet
-                    for (int count = 0; count < 30; count++)
+
+                    for (int i = 0; i < file_data.length(); i += 30)
                     {
-                        send_data[count] = 0;
-                    }
-                    //fill send data array with 4 bytes from the buffer
-                    for (int count = 0; count < 30; count++)
-                    {
-                        if (current_pos >= file_data.length())
+                        //clear out the send data array before every packet
+                        for (int count = 0; count < 30; count++)
                         {
-                            break;
+                            send_data[count] = 0;
                         }
-                        send_data[count] = buffer[current_pos];
-                        current_pos++;
-                        size = count;
+                        //fill send data array with 4 bytes from the buffer
+                        for (int count = 0; count < 30; count++)
+                        {
+                            if (current_pos >= file_data.length())
+                            {
+                                break;
+                            }
+                            send_data[count] = buffer[current_pos];
+                            current_pos++;
+                            size = count;
+                        }
+                        send_string = new String(send_data);
+                        p = new packet(1, myClient.currentPacketNumber % myClient.windowSize, size, send_string);
+                        myClient.currentPacketNumber++;
+                        myClient.sendToEmulator(p);
                     }
-                    send_string = new String(send_data);
-                    p = new packet(1, myClient.currentPacketNumber % myClient.windowSize, size, send_string);
-                    myClient.currentPacketNumber++;
+                    //EOT packet
+                    p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
                     myClient.sendToEmulator(p);
                 }
-                //EOT packet
-                p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
+                else
+                {
+                    System.out.println("Error: packet sends are exceeding window size. ");
+                }
             }
             catch (Exception e)
             {
