@@ -12,6 +12,7 @@ import java.net.InetAddress;
 public class client
 {
     private int byteBufferSize = 2048;
+    private int windowSize = 7;
     /**User CommandLine Variables*/
     private String emulatorHostName;
     private int receiveFromEmulatorPort;
@@ -121,12 +122,64 @@ public class client
 
     public static void main(String[] args)
     {
-        if (args.length == 4) { //ensure all parameters are passed to server construct
-            client myClient = new client(args);
-            int data = myClient.readFromFile.read();
+        if (args.length == 4) //ensure all parameters are passed to server construct
+        {
+            try
+            {
+                client myClient = new client(args);
+                File file_data = new File(myClient.userSpecifiedFilename);
+                byte[] buffer = new byte[(int) file_data.length() + 1];
+                byte[] send_data = new byte[30];
+                String send_string;
+                FileInputStream file_in_stream = null;
+                int current_pos = 0;
+
+                //convert file to an array of bytes
+                //source from: http://www.mkyong.com/java/how-to-convert-file-into-an-array-of-bytes/
+                file_in_stream = new FileInputStream(file_data);
+                file_in_stream.read(buffer);
+                file_in_stream.close();
+
+                myClient.createServerConnection();
+                packet p;
+                int size = 0;
+                myClient.currentPacketNumber = 0;
+
+                for (int i = 0; i < file_data.length(); i += 30)
+                {
+                    //clear out the send data array before every packet
+                    for (int count = 0; count < 30; count++)
+                    {
+                        send_data[count] = 0;
+                    }
+                    //fill send data array with 4 bytes from the buffer
+                    for (int count = 0; count < 30; count++)
+                    {
+                        if (current_pos >= file_data.length())
+                        {
+                            break;
+                        }
+                        send_data[count] = buffer[current_pos];
+                        current_pos++;
+                        size = count;
+                    }
+                    send_string = new String(send_data);
+                    p = new packet(1, myClient.currentPacketNumber % myClient.windowSize, size, send_string);
+                    myClient.currentPacketNumber++;
+                    myClient.sendToEmulator(p);
+                }
+                //EOT packet
+                p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
+            }
+            catch (Exception e)
+            {
+                System.out.println(e);
+            }
         }
-        else{
+        else
+        {
             System.out.println("Incorrect Parameters Given");
         }
+
     }
 }
