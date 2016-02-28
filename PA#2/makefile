@@ -8,6 +8,7 @@ JC = javac
 CLASSES = \
 	packet.java \
 	server.java
+	client.java
 
 default: classes
 
