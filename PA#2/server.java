@@ -7,7 +7,7 @@ import java.net.InetAddress;
  * Created by Kemp on 2/28/2016.
  * This is serverSide of Programming Assignment #2
  * CSE4123 Data Comm
- * Partner: JD Stewart
+ * Partner: JD Stewart, jds1172
  */
 public class server {
     private int byteBufferSize = 2048;
