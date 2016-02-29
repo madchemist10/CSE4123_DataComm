@@ -3,6 +3,8 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.util.Arrays;
+import java.util.Timer;
+import java.util.TimerTask;
 
 /**
 * Created by JD Stewart on 2/28/2016.
@@ -17,6 +19,9 @@ public class client
     public int windowSize = 7;
     public int windowBufferSize = 8;
     public int[] window = new int[windowBufferSize];   //keep track of what is on wire
+    public boolean resendFlag = false;
+    public Timer timeout;
+
     public int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
@@ -26,7 +31,6 @@ public class client
     /**Server Connection Variables*/
     public DatagramSocket receiveSocket;
     public DatagramSocket sendSocket;
-    private Reader readFromFile;
     /**Status Variables*/
     public int currentPacketNumber;
 
@@ -36,11 +40,12 @@ public class client
         try
         {
             this.emulatorHostName = args[0];
-            this.receiveFromEmulatorPort = Integer.parseInt(args[1]);
-            this.sendToEmulatorPort = Integer.parseInt(args[2]);
+            this.sendToEmulatorPort = Integer.parseInt(args[1]);
+            this.receiveFromEmulatorPort = Integer.parseInt(args[2]);
             this.userSpecifiedFilename = args[3];
 
             Arrays.fill(this.window, 0);
+            this.timeout = new Timer();
         }
         catch (Exception e)
         {
@@ -117,7 +122,7 @@ public class client
 
     /**DeserializePacket*/
     //http://stackoverflow.com/questions/37360true58/java-object-to-byte-and-byte-to-object-converter-for-tokyo-cabinet
-    private packet deserializePacket(byte[] myBytes)
+    public packet deserializePacket(byte[] myBytes)
     {
         try
         {
@@ -134,6 +139,16 @@ public class client
         }
         return null;
     }
+
+    class resendPacketTimer extends TimerTask
+    {
+        public void run()
+        {
+            resendFlag = true;
+        }
+
+    }
+
 
     public static void main(String[] args)
     {
@@ -172,7 +187,7 @@ public class client
                 packet p;
                 packet[] resend_buf = new packet[myClient.windowBufferSize];
                 int size = 0;
-                int seq_no = 0;
+                int seq_no;
                 boolean is_last_packet = false;
                 myClient.currentPacketNumber = 0;
 
@@ -182,16 +197,18 @@ public class client
                     //check to see if within window size
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
-                        int counter = 0;    //keep up with number of packets sent on iteration
+                        System.err.println("within window size and not last packet");
+                        System.err.println(file_data.length());
+//                        int counter = 0;    //keep up with number of packets sent on iteration
                         //while num of packets sent is less than windowsSize - inFlightPackets
-                        while (counter < (myClient.windowSize-myClient.inFlightPackets))
-                        {
+//                        while (counter < (myClient.windowSize-myClient.inFlightPackets))
+//                        {
                             for (int i = 0; i < file_data.length(); i += 30) {
                                 //clear out the send data array before every packet
                                 for (int count = 0; count < 30; count++) {
                                     send_data[count] = 0;
                                 }
-                                //fill send data array with 4 bytes from the buffer
+                                //fill send data array with 30 bytes from the buffer
                                 for (int count = 0; count < 30; count++) {
                                     if (current_pos >= file_data.length()) {
                                         is_last_packet = true;
@@ -208,16 +225,20 @@ public class client
                                 resend_buf[seq_no] = p;
                                 myClient.currentPacketNumber++;
                                 //start timer here, potential have an array of timers for each packet on wire
+
                                 myClient.sendToEmulator(p);
+                                myClient.inFlightPackets++;
                                 myClient.window[seq_no] = 1;
                             }
-                            counter++;
-                        }
+//                            counter++;
+//                        }
                     }
 
                     //ack stage
                     byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
                     DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
+
+                    //timer
 
                     myClient.receiveSocket.receive(receivePacket);
                     packet ack = myClient.deserializePacket(receivePacket.getData());

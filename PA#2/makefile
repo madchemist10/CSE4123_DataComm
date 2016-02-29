@@ -7,7 +7,7 @@ JC = javac
 
 CLASSES = \
 	packet.java \
-	server.java
+	server.java \
 	client.java
 
 default: classes
@@ -15,4 +15,4 @@ default: classes
 classes: $(CLASSES:.java=.class)
 
 clean:
-	$(RM) *.class received.txt
+	$(RM) *.class output.txt arrival.log
