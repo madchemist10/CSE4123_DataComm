@@ -7,6 +7,7 @@ import java.net.InetAddress;
  * Created by Kemp on 2/28/2016.
  * This is serverSide of Programming Assignment #2
  * CSE4123 Data Comm
+ * Partner: JD Stewart
  */
 public class server {
     private int byteBufferSize = 2048;
@@ -59,22 +60,28 @@ public class server {
                     DatagramPacket receivePacket = new DatagramPacket(myInBytes, myInBytes.length);
                     this.receiveSocket.receive(receivePacket);
                     packet myPacket = deserializePacket(receivePacket.getData());
-                    if (myPacket != null) {
-                        this.currentPacketNumber = myPacket.getSeqNum();
-                        this.currentPacketType = myPacket.getType();
-                        if (this.nextSeqNumber == this.currentPacketNumber){
-                            if (this.currentPacketType == 3){
+                    if (myPacket != null) { //if we have a valid packet
+                        this.currentPacketNumber = myPacket.getSeqNum();    //retrieve sequence number
+                        this.currentPacketType = myPacket.getType();    //retrieve packet type
+                        if (this.nextSeqNumber == this.currentPacketNumber){    //if sequence number is desired sequence number
+                            if (this.currentPacketType == 3){   //if packet type is EOT from client
                                 this.sendToEmulator(createEOTPacket(this.currentPacketNumber));
                                 this.EOTFlag = true;
                             }
-                            if (this.currentPacketType == 1) {
-                                this.nextSeqNumber++;
-                                this.sendToEmulator(createAckPacket(this.currentPacketNumber));
-                                this.writeDataToFile.write(myPacket.getData());
+                            if (this.currentPacketType == 1) {  //if packet type is data packet
+                                this.nextSeqNumber++;   //increment desired sequence number
+                                this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
+                                this.writeDataToFile.write(myPacket.getData()); //write data to file
                             }
-                            this.writeSeqToFile.write(this.currentPacketNumber);
+                            this.writeSeqToFile.write(this.currentPacketNumber);    //write sequence number of received packet to file
                         }
                         else{
+                            //resend ack packet for most recent received data packet
+                            /**Example
+                             * Last packet I receive is 3
+                             * I need to recent ack for packet 3
+                             * seqNum = 4+7= 11%8 = 3
+                             * */
                             sendToEmulator(createAckPacket((this.nextSeqNumber+this.windowSize)%this.windowBufferSize));
                         }
                     }

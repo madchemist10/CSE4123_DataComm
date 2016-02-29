@@ -8,28 +8,27 @@ import java.util.Arrays;
 * Created by JD Stewart on 2/28/2016.
 * This is ClientSide of Programming Assignment #2
 * CSE4123 Data Comm
+ * Partner: JJ Kemp, jhk114
 */
 
 public class client
 {
-    private int byteBufferSize = 30;
-    private int windowSize = 7;
-    private int windowBufferSize = 8;
-    private int[] window = new int[windowBufferSize];
-    private  int inFlightPackets = 0;
+    public int byteBufferSize = 30;
+    public int windowSize = 7;
+    public int windowBufferSize = 8;
+    public int[] window = new int[windowBufferSize];   //keep track of what is on wire
+    public int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
     private int receiveFromEmulatorPort;
     private int sendToEmulatorPort;
-    private String userSpecifiedFilename;
-    /**OutputLogging Filenames*/
-    private String arrivalLog = "arrival.log";
+    public String userSpecifiedFilename;
     /**Server Connection Variables*/
-    private DatagramSocket receiveSocket;
-    private DatagramSocket sendSocket;
+    public DatagramSocket receiveSocket;
+    public DatagramSocket sendSocket;
     private Reader readFromFile;
     /**Status Variables*/
-    private int currentPacketNumber;
+    public int currentPacketNumber;
 
 
     public client (String[] args)
@@ -50,7 +49,7 @@ public class client
     }
 
     /**Establish Server Connections*/
-    private boolean createServerConnection()
+    public boolean createServerConnection()
     {
         try
         {
@@ -65,8 +64,18 @@ public class client
         } return false;
     }
 
+    /**Close Server Connection*/
+    public void closeServerConnection(){
+        try{
+            this.receiveSocket.close();
+            this.sendSocket.close();
+        } catch(Exception e){
+            System.err.println(e.getClass().getName()+": "+e.getMessage());
+        }
+    }
+
     /**Send Data to Emulator*/
-    private void sendToEmulator(packet myPacket)
+    public void sendToEmulator(packet myPacket)
     {
         try
         {
@@ -87,7 +96,7 @@ public class client
 
     /**SerializePacket*/
     //http://stackoverflow.com/questions/17940423/send-object-over-udp-in-java
-    private byte[] serializePacket(packet myPacket)
+    public byte[] serializePacket(packet myPacket)
     {
         try
         {
@@ -128,7 +137,7 @@ public class client
 
     public static void main(String[] args)
     {
-        if (args.length == 4) //ensure all parameters are passed to server construct
+        if (args.length == 4) //ensure all parameters are passed to client construct
         {
             try
             {
@@ -137,17 +146,27 @@ public class client
                 byte[] buffer = new byte[(int) file_data.length() + 1];
                 byte[] send_data = new byte[myClient.byteBufferSize];
                 String send_string;
-                FileInputStream file_in_stream = null;
+                FileInputStream file_in_stream;
                 int current_pos = 0;
                 int current_unack_pos = 0;
                 int last_acked_packNum = 0;
+                boolean EOTFromServer = false;
 
 
                 //convert file to an array of bytes
                 //source from: http://www.mkyong.com/java/how-to-convert-file-into-an-array-of-bytes/
-                file_in_stream = new FileInputStream(file_data);
-                file_in_stream.read(buffer);
-                file_in_stream.close();
+                try
+                {
+                    file_in_stream = new FileInputStream(file_data);
+                    file_in_stream.read(buffer);
+                    file_in_stream.close();
+                }
+                catch (Exception e)
+                {
+                    //Fatal Error
+                    System.err.println("Cannot Open File For Input.");
+                    return;
+                }
 
                 myClient.createServerConnection();
                 packet p;
@@ -157,37 +176,42 @@ public class client
                 boolean is_last_packet = false;
                 myClient.currentPacketNumber = 0;
 
-                while(true)
+                /**Loop until EOT from Server*/
+                while(!EOTFromServer)
                 {
                     //check to see if within window size
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
-                        for (int i = 0; i < file_data.length(); i += 30)
+                        int counter = 0;    //keep up with number of packets sent on iteration
+                        //while num of packets sent is less than windowsSize - inFlightPackets
+                        while (counter < (myClient.windowSize-myClient.inFlightPackets))
                         {
-                            //clear out the send data array before every packet
-                            for (int count = 0; count < 30; count++)
-                            {
-                                send_data[count] = 0;
-                            }
-                            //fill send data array with 4 bytes from the buffer
-                            for (int count = 0; count < 30; count++)
-                            {
-                                if (current_pos >= file_data.length())
-                                {
-                                    is_last_packet = true;
-                                    break;
+                            for (int i = 0; i < file_data.length(); i += 30) {
+                                //clear out the send data array before every packet
+                                for (int count = 0; count < 30; count++) {
+                                    send_data[count] = 0;
                                 }
-                                send_data[count] = buffer[current_pos];
-                                current_pos++;
-                                size = count;
+                                //fill send data array with 4 bytes from the buffer
+                                for (int count = 0; count < 30; count++) {
+                                    if (current_pos >= file_data.length()) {
+                                        is_last_packet = true;
+                                        break;
+                                    }
+                                    send_data[count] = buffer[current_pos];
+                                    current_pos++;
+                                    size = count;
+                                }
+                                /**Put new packet on the wire*/
+                                send_string = new String(send_data);
+                                seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
+                                p = new packet(1, seq_no, size, send_string);
+                                resend_buf[seq_no] = p;
+                                myClient.currentPacketNumber++;
+                                //start timer here, potential have an array of timers for each packet on wire
+                                myClient.sendToEmulator(p);
+                                myClient.window[seq_no] = 1;
                             }
-                            send_string = new String(send_data);
-                            seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
-                            p = new packet(1, seq_no, size, send_string);
-                            resend_buf[seq_no] = p;
-                            myClient.currentPacketNumber++;
-                            myClient.sendToEmulator(p);
-                            myClient.window[seq_no] = 1;
+                            counter++;
                         }
                     }
 
@@ -199,41 +223,46 @@ public class client
                     packet ack = myClient.deserializePacket(receivePacket.getData());
                     last_acked_packNum = ack.getSeqNum();
 
+                    /**For each element in window buffer*/
                     for(int i = 0; i < myClient.windowBufferSize; i++)
                     {
+                        /**If index less than seqNum in Ack*/
                         if(i < last_acked_packNum)
                         {
-                            myClient.window[i] = 0;
-                            myClient.inFlightPackets--;
+                            myClient.window[i] = 0; //set index to be received
+                            myClient.inFlightPackets--; //decrement packets on wire
                         }
+                        /**If index is on wire*/
                         if(myClient.window[i] == 1)
                         {
-                            myClient.inFlightPackets++;
+                            myClient.inFlightPackets++; //increment packets on wire
                         }
                     }
-
+                    /**If last packet is detected*/
                     if(is_last_packet)
                     {
                         //EOT packet
                         p = new packet(3, myClient.currentPacketNumber % myClient.windowBufferSize, 0, null);
                         myClient.sendToEmulator(p);
                     }
+                    /**If received packet type is EOT from Server*/
                     if(ack.getType() == 2)
                     {
-                        break;
+                        EOTFromServer = true;   //set EOT Flag
                     }
 
                 }
+                myClient.closeServerConnection();
 
             }
             catch (Exception e)
             {
-                System.out.println(e);
+                System.err.println(e.getClass().getName()+": "+e.getMessage());
             }
         }
         else
         {
-            System.out.println("Incorrect Parameters Given");
+            System.err.println("Incorrect Parameters Given");
         }
 
     }
