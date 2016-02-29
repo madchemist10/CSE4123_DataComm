@@ -88,7 +88,6 @@ public class server {
                              * */
                             System.err.println("Resend ack" + (this.nextSeqNumber+this.windowSize)%this.windowBufferSize);
                             sendToEmulator(createAckPacket((this.nextSeqNumber+this.windowSize)%this.windowBufferSize));
-                            this.EOTFlag = true;
                         }
                     }
                 } catch (Exception e) {

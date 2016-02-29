@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -20,8 +21,6 @@ public class client
     public int windowBufferSize = 8;
     public int[] window = new int[windowBufferSize];   //keep track of what is on wire
     public boolean resendFlag = false;
-    public Timer timeout;
-
     public int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
@@ -45,7 +44,6 @@ public class client
             this.userSpecifiedFilename = args[3];
 
             Arrays.fill(this.window, 0);
-            this.timeout = new Timer();
         }
         catch (Exception e)
         {
@@ -140,15 +138,6 @@ public class client
         return null;
     }
 
-    class resendPacketTimer extends TimerTask
-    {
-        public void run()
-        {
-            resendFlag = true;
-        }
-
-    }
-
 
     public static void main(String[] args)
     {
@@ -163,7 +152,6 @@ public class client
                 String send_string;
                 FileInputStream file_in_stream;
                 int current_pos = 0;
-                int current_unack_pos = 0;
                 int last_acked_packNum = 0;
                 boolean EOTFromServer = false;
 
@@ -184,10 +172,14 @@ public class client
                 }
 
                 myClient.createServerConnection();
+                //throws a socket exception if it hasn't received within 800 ms
+                myClient.receiveSocket.setSoTimeout(800);
                 packet p;
+                packet ack = new packet(0,0,0,null);
                 packet[] resend_buf = new packet[myClient.windowBufferSize];
                 int size = 0;
                 int seq_no;
+                int num_acks = 0;
                 boolean is_last_packet = false;
                 myClient.currentPacketNumber = 0;
 
@@ -197,69 +189,107 @@ public class client
                     //check to see if within window size
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
-                        System.err.println("within window size and not last packet");
-                        System.err.println(file_data.length());
+                        for (int i = 0; i < file_data.length(); i += 30)
+                        {
+                            //clear out the send data array before every packet
+                            for (int count = 0; count < 30; count++)
+                            {
+                                send_data[count] = 0;
+                            }
+                            //fill send data array with 30 bytes from the buffer
+                            for (int count = 0; count < 30; count++)
+                            {
+                                if (current_pos >= file_data.length())
+                                {
+                                    is_last_packet = true;
+                                    break;
+                                }
+                                send_data[count] = buffer[current_pos];
+                                current_pos++;
+                                size = count;
+                            }
+                            /**Put new packet on the wire*/
+                            send_string = new String(send_data);
+                            seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
+                            p = new packet(1, seq_no, size+1, send_string);
+                            resend_buf[seq_no] = p;
+                            myClient.currentPacketNumber++;
+                            //start timer here, potential have an array of timers for each packet on wire
+                            System.err.println("Seq num: " + seq_no);
+                            myClient.sendToEmulator(p);
+                            myClient.inFlightPackets++;
+                            //myClient.window[seq_no] = 1;
+                        }
 //                        int counter = 0;    //keep up with number of packets sent on iteration
                         //while num of packets sent is less than windowsSize - inFlightPackets
 //                        while (counter < (myClient.windowSize-myClient.inFlightPackets))
 //                        {
-                            for (int i = 0; i < file_data.length(); i += 30) {
-                                //clear out the send data array before every packet
-                                for (int count = 0; count < 30; count++) {
-                                    send_data[count] = 0;
-                                }
-                                //fill send data array with 30 bytes from the buffer
-                                for (int count = 0; count < 30; count++) {
-                                    if (current_pos >= file_data.length()) {
-                                        is_last_packet = true;
-                                        break;
-                                    }
-                                    send_data[count] = buffer[current_pos];
-                                    current_pos++;
-                                    size = count;
-                                }
-                                /**Put new packet on the wire*/
-                                send_string = new String(send_data);
-                                seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
-                                p = new packet(1, seq_no, size+1, send_string);
-                                resend_buf[seq_no] = p;
-                                myClient.currentPacketNumber++;
-                                //start timer here, potential have an array of timers for each packet on wire
-                                System.err.println("Seq num: " + seq_no);
-                                myClient.sendToEmulator(p);
-                                myClient.inFlightPackets++;
-                                myClient.window[seq_no] = 1;
-                            }
+
 //                            counter++;
 //                        }
                     }
 
                     //ack stage
-                    byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
-                    DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
-
-                    //timer
-
-                    myClient.receiveSocket.receive(receivePacket);
-                    packet ack = myClient.deserializePacket(receivePacket.getData());
-                    ack.printContents();
-                    last_acked_packNum = ack.getSeqNum();
+                    try
+                    {
+                        byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
+                        DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
+                        myClient.receiveSocket.receive(receivePacket);
+                        ack = myClient.deserializePacket(receivePacket.getData());
+                        num_acks++;
+                        //last_acked_packNum = ack.getSeqNum();
+                    }
+                    catch (SocketTimeoutException e)
+                    {
+                        current_pos = 30 * num_acks;
+                        //algorithm started at lost packet
+                        for (int i = current_pos; i < file_data.length(); i += 30)
+                        {
+                            //clear out the send data array before every packet
+                            for (int count = 0; count < 30; count++)
+                            {
+                                send_data[count] = 0;
+                            }
+                            //fill send data array with 30 bytes from the buffer
+                            for (int count = 0; count < 30; count++)
+                            {
+                                if (current_pos >= file_data.length())
+                                {
+                                    is_last_packet = true;
+                                    break;
+                                }
+                                send_data[count] = buffer[current_pos];
+                                current_pos++;
+                                size = count;
+                            }
+                            /**Put new packet on the wire*/
+                            send_string = new String(send_data);
+                            seq_no = ack.getSeqNum();
+                            p = new packet(1, seq_no, size+1, send_string);
+                            resend_buf[seq_no] = p;
+                            myClient.currentPacketNumber++;
+                            myClient.sendToEmulator(p);
+                            myClient.inFlightPackets++;
+                            //myClient.window[seq_no] = 1;
+                        }
+                    }
 
                     /**For each element in window buffer*/
-                    for(int i = 0; i < myClient.windowBufferSize; i++)
+                   /* for(int i = 0; i < myClient.windowBufferSize; i++)
                     {
-                        /**If index less than seqNum in Ack*/
+                        *//**If index less than seqNum in Ack*//*
                         if(i < last_acked_packNum)
                         {
                             myClient.window[i] = 0; //set index to be received
                             myClient.inFlightPackets--; //decrement packets on wire
                         }
-                        /**If index is on wire*/
+                        *//**If index is on wire*//*
                         if(myClient.window[i] == 1)
                         {
                             myClient.inFlightPackets++; //increment packets on wire
                         }
-                    }
+                    }*/
+
                     /**If last packet is detected*/
                     if(is_last_packet)
                     {
