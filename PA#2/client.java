@@ -11,7 +11,7 @@ import java.net.InetAddress;
 
 public class client
 {
-    private int byteBufferSize = 2048;
+    private int byteBufferSize = 30;
     private int windowSize = 7;
     /**User CommandLine Variables*/
     private String emulatorHostName;
