@@ -61,22 +61,23 @@ public class server {
                     this.receiveSocket.receive(receivePacket);
                     packet myPacket = deserializePacket(receivePacket.getData());
                     if (myPacket != null) { //if we have a valid packet
+                        //myPacket.printContents();
                         this.currentPacketNumber = myPacket.getSeqNum();    //retrieve sequence number
                         this.currentPacketType = myPacket.getType();    //retrieve packet type
                         if (this.nextSeqNumber == this.currentPacketNumber){    //if sequence number is desired sequence number
                             if (this.currentPacketType == 3){   //if packet type is EOT from client
-                                System.err.println("EOT packet received");
+                                System.err.println("EOT packet received: " + this.currentPacketNumber);
                                 this.sendToEmulator(createEOTPacket(this.currentPacketNumber));
 
                                 this.EOTFlag = true;
                             }
                             if (this.currentPacketType == 1) {  //if packet type is data packet
-                                System.err.println("Data packet received");
+                                System.err.println("Data packet received: " + this.currentPacketNumber);
                                 this.nextSeqNumber++;   //increment desired sequence number
                                 this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
                                 this.writeDataToFile.write(myPacket.getData()); //write data to file
                             }
-                            this.writeSeqToFile.write(this.currentPacketNumber);    //write sequence number of received packet to file
+                            this.writeSeqToFile.println(this.currentPacketNumber);    //write sequence number of received packet to file
                         }
                         else{
                             //resend ack packet for most recent received data packet
@@ -85,8 +86,9 @@ public class server {
                              * I need to recent ack for packet 3
                              * seqNum = 4+7= 11%8 = 3
                              * */
-                            System.err.println("Resend ack" + this.nextSeqNumber);
+                            System.err.println("Resend ack" + (this.nextSeqNumber+this.windowSize)%this.windowBufferSize);
                             sendToEmulator(createAckPacket((this.nextSeqNumber+this.windowSize)%this.windowBufferSize));
+                            this.EOTFlag = true;
                         }
                     }
                 } catch (Exception e) {

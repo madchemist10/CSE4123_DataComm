@@ -221,11 +221,11 @@ public class client
                                 /**Put new packet on the wire*/
                                 send_string = new String(send_data);
                                 seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
-                                p = new packet(1, seq_no, size, send_string);
+                                p = new packet(1, seq_no, size+1, send_string);
                                 resend_buf[seq_no] = p;
                                 myClient.currentPacketNumber++;
                                 //start timer here, potential have an array of timers for each packet on wire
-
+                                System.err.println("Seq num: " + seq_no);
                                 myClient.sendToEmulator(p);
                                 myClient.inFlightPackets++;
                                 myClient.window[seq_no] = 1;
@@ -242,6 +242,7 @@ public class client
 
                     myClient.receiveSocket.receive(receivePacket);
                     packet ack = myClient.deserializePacket(receivePacket.getData());
+                    ack.printContents();
                     last_acked_packNum = ack.getSeqNum();
 
                     /**For each element in window buffer*/
