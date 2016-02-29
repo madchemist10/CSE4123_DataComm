@@ -14,7 +14,8 @@ public class client
 {
     private int byteBufferSize = 30;
     private int windowSize = 7;
-    private int[] window = new int[windowSize];
+    private int windowBufferSize = 8;
+    private int[] window = new int[windowBufferSize];
     private  int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
@@ -150,7 +151,7 @@ public class client
 
                 myClient.createServerConnection();
                 packet p;
-                packet[] resend_buf = new packet[myClient.windowSize];
+                packet[] resend_buf = new packet[myClient.windowBufferSize];
                 int size = 0;
                 int seq_no = 0;
                 boolean is_last_packet = false;
@@ -181,7 +182,7 @@ public class client
                                 size = count;
                             }
                             send_string = new String(send_data);
-                            seq_no = myClient.currentPacketNumber % (myClient.windowSize + 1);
+                            seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
                             p = new packet(1, seq_no, size, send_string);
                             resend_buf[seq_no] = p;
                             myClient.currentPacketNumber++;
@@ -198,7 +199,7 @@ public class client
                     packet ack = myClient.deserializePacket(receivePacket.getData());
                     last_acked_packNum = ack.getSeqNum();
 
-                    for(int i = 0; i <= myClient.windowSize; i++)
+                    for(int i = 0; i < myClient.windowBufferSize; i++)
                     {
                         if(i < last_acked_packNum)
                         {
@@ -214,7 +215,7 @@ public class client
                     if(is_last_packet)
                     {
                         //EOT packet
-                        p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
+                        p = new packet(3, myClient.currentPacketNumber % myClient.windowBufferSize, 0, null);
                         myClient.sendToEmulator(p);
                     }
                     if(ack.getType() == 2)
