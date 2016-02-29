@@ -20,9 +20,15 @@ public class server {
     /**Server Connection Variables*/
     private DatagramSocket receiveSocket;
     private DatagramSocket sendSocket;
-    private PrintWriter writeToFile;
+    private PrintWriter writeDataToFile;
+    private PrintWriter writeSeqToFile;
     /**Status Variables*/
     private int currentPacketNumber;
+    private int currentPacketType;
+    private int nextSeqNumber;
+    private int windowSize;
+    private int windowBufferSize;
+    private boolean EOTFlag;
 
 
     /**Constructor*/
@@ -32,30 +38,51 @@ public class server {
             this.receiveFromEmulatorPort = Integer.parseInt(args[1]);
             this.sendToEmulatorPort = Integer.parseInt(args[2]);
             this.userSpecifiedFilename = args[3];
+            this.windowSize = 7;
+            this.windowBufferSize = 8;
+            this.nextSeqNumber = 0;
+            this.EOTFlag = false;
             if (!this.createServerConnection()) {
                 return;
             }
-            this.writeToFile = new PrintWriter(new BufferedWriter(new FileWriter(this.userSpecifiedFilename, true)));
+            this.writeDataToFile = new PrintWriter(new BufferedWriter(new FileWriter(this.userSpecifiedFilename, true)));
+            this.writeSeqToFile = new PrintWriter(new BufferedWriter(new FileWriter(this.arrivalLog, true)));
             /**While loop to accept incoming packets
              * Receive packets and stored in byte buffer.
              * Deserialize byte array into packet Object.
              * Write data from packet Object to user specified file.
+             * Write seq num to arrival.log
              * */
-            while (true) {
+            while (!this.EOTFlag) {
                 try {
                     byte[] myInBytes = new byte[this.byteBufferSize];
                     DatagramPacket receivePacket = new DatagramPacket(myInBytes, myInBytes.length);
                     this.receiveSocket.receive(receivePacket);
                     packet myPacket = deserializePacket(receivePacket.getData());
                     if (myPacket != null) {
-                        myPacket.printContents();
                         this.currentPacketNumber = myPacket.getSeqNum();
-                        this.writeToFile.write(myPacket.getData());
+                        this.currentPacketType = myPacket.getType();
+                        if (this.nextSeqNumber == this.currentPacketNumber){
+                            if (this.currentPacketType == 3){
+                                this.sendToEmulator(createEOTPacket(this.currentPacketNumber));
+                                this.EOTFlag = true;
+                            }
+                            if (this.currentPacketType == 1) {
+                                this.nextSeqNumber++;
+                                this.sendToEmulator(createAckPacket(this.currentPacketNumber));
+                                this.writeDataToFile.write(myPacket.getData());
+                            }
+                            this.writeSeqToFile.write(this.currentPacketNumber);
+                        }
+                        else{
+                            sendToEmulator(createAckPacket((this.nextSeqNumber+this.windowSize)%this.windowBufferSize));
+                        }
                     }
                 } catch (Exception e) {
                     System.err.println(e.getClass().getName() + ": " + e.getMessage());
                 }
             }
+            this.closeServerConnection();
         }catch (Exception e) {
             System.err.println(e.getClass().getName() + ": " + e.getMessage());
         }
@@ -73,6 +100,16 @@ public class server {
         } return false;
     }
 
+    /**Close Server Connection*/
+    private void closeServerConnection(){
+        try{
+            this.receiveSocket.close();
+            this.sendSocket.close();
+        } catch(Exception e){
+            System.err.println(e.getClass().getName()+": "+e.getMessage());
+        }
+    }
+
     /**Send Data to Emulator*/
     private void sendToEmulator(packet myPacket){
         try {
@@ -86,6 +123,16 @@ public class server {
         } catch(Exception e){
             System.err.println(e.getClass().getName()+": "+e.getMessage());
         }
+    }
+
+    /**Create Ack Packet*/
+    private packet createAckPacket(int seqNum){
+        return new packet(0,seqNum,0,null);
+    }
+
+    /**Create EOT Packet*/
+    private packet createEOTPacket(int segNum){
+        return new packet(2,segNum,0,null);
     }
 
     /**SerializePacket*/
