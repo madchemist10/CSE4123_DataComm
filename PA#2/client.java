@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.util.Arrays;
 
 /**
 * Created by JD Stewart on 2/28/2016.
@@ -12,7 +13,9 @@ import java.net.InetAddress;
 public class client
 {
     private int byteBufferSize = 30;
-    private int windowSize = 7;
+    private int windowSize = 8;
+    private int[] window = new int[windowSize];
+    private  int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
     private int receiveFromEmulatorPort;
@@ -36,6 +39,8 @@ public class client
             this.receiveFromEmulatorPort = Integer.parseInt(args[1]);
             this.sendToEmulatorPort = Integer.parseInt(args[2]);
             this.userSpecifiedFilename = args[3];
+
+            Arrays.fill(this.window, 0);
         }
         catch (Exception e)
         {
@@ -101,7 +106,7 @@ public class client
     }
 
     /**DeserializePacket*/
-    //http://stackoverflow.com/questions/3736058/java-object-to-byte-and-byte-to-object-converter-for-tokyo-cabinet
+    //http://stackoverflow.com/questions/37360true58/java-object-to-byte-and-byte-to-object-converter-for-tokyo-cabinet
     private packet deserializePacket(byte[] myBytes)
     {
         try
@@ -129,10 +134,12 @@ public class client
                 client myClient = new client(args);
                 File file_data = new File(myClient.userSpecifiedFilename);
                 byte[] buffer = new byte[(int) file_data.length() + 1];
-                byte[] send_data = new byte[30];
+                byte[] send_data = new byte[myClient.byteBufferSize];
                 String send_string;
                 FileInputStream file_in_stream = null;
                 int current_pos = 0;
+                int current_unack_pos = 0;
+                int last_acked_packNum = 0;
 
                 //convert file to an array of bytes
                 //source from: http://www.mkyong.com/java/how-to-convert-file-into-an-array-of-bytes/
@@ -143,43 +150,72 @@ public class client
                 myClient.createServerConnection();
                 packet p;
                 int size = 0;
+                int seq_no = 0;
+                boolean is_last_packet = false;
                 myClient.currentPacketNumber = 0;
 
-                //check to see if within window size
-                if(true)
+                while(true)
                 {
-
-                    for (int i = 0; i < file_data.length(); i += 30)
+                    //check to see if within window size
+                    while(myClient.inFlightPackets < myClient.windowSize)
                     {
-                        //clear out the send data array before every packet
-                        for (int count = 0; count < 30; count++)
+                        for (int i = 0; i < file_data.length(); i += 30)
                         {
-                            send_data[count] = 0;
-                        }
-                        //fill send data array with 4 bytes from the buffer
-                        for (int count = 0; count < 30; count++)
-                        {
-                            if (current_pos >= file_data.length())
+                            //clear out the send data array before every packet
+                            for (int count = 0; count < 30; count++)
                             {
-                                break;
+                                send_data[count] = 0;
                             }
-                            send_data[count] = buffer[current_pos];
-                            current_pos++;
-                            size = count;
+                            //fill send data array with 4 bytes from the buffer
+                            for (int count = 0; count < 30; count++)
+                            {
+                                if (current_pos >= file_data.length())
+                                {
+                                    is_last_packet = true;
+                                    break;
+                                }
+                                send_data[count] = buffer[current_pos];
+                                current_pos++;
+                                size = count;
+                            }
+                            send_string = new String(send_data);
+                            seq_no = myClient.currentPacketNumber % myClient.windowSize;
+                            p = new packet(1, seq_no, size, send_string);
+                            myClient.currentPacketNumber++;
+                            myClient.sendToEmulator(p);
+                            myClient.window[seq_no] = 1;
                         }
-                        send_string = new String(send_data);
-                        p = new packet(1, myClient.currentPacketNumber % myClient.windowSize, size, send_string);
-                        myClient.currentPacketNumber++;
-                        myClient.sendToEmulator(p);
                     }
-                    //EOT packet
-                    p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
-                    myClient.sendToEmulator(p);
+
+                    //ack stage
+                    byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
+                    DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
+                    myClient.receiveSocket.receive(receivePacket);
+                    packet ack = myClient.deserializePacket(receivePacket.getData());
+                    last_acked_packNum = ack.getSeqNum();
+
+                    for(int i = 0; i < myClient.windowSize; i++)
+                    {
+                        if(i < last_acked_packNum)
+                        {
+                            myClient.window[i] = 0;
+                            myClient.inFlightPackets--;
+                        }
+                        if(myClient.window[i] == 1)
+                        {
+                            myClient.inFlightPackets++;
+                        }
+                    }
+
+                    if(is_last_packet)
+                    {
+                        break;
+                    }
+
                 }
-                else
-                {
-                    System.out.println("Error: packet sends are exceeding window size. ");
-                }
+                //EOT packet
+                p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
+                myClient.sendToEmulator(p);
             }
             catch (Exception e)
             {
