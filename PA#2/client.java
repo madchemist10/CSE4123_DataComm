@@ -13,7 +13,7 @@ import java.util.Arrays;
 public class client
 {
     private int byteBufferSize = 30;
-    private int windowSize = 8;
+    private int windowSize = 7;
     private int[] window = new int[windowSize];
     private  int inFlightPackets = 0;
     /**User CommandLine Variables*/
@@ -141,6 +141,7 @@ public class client
                 int current_unack_pos = 0;
                 int last_acked_packNum = 0;
 
+
                 //convert file to an array of bytes
                 //source from: http://www.mkyong.com/java/how-to-convert-file-into-an-array-of-bytes/
                 file_in_stream = new FileInputStream(file_data);
@@ -149,6 +150,7 @@ public class client
 
                 myClient.createServerConnection();
                 packet p;
+                packet[] resend_buf = new packet[myClient.windowSize];
                 int size = 0;
                 int seq_no = 0;
                 boolean is_last_packet = false;
@@ -157,7 +159,7 @@ public class client
                 while(true)
                 {
                     //check to see if within window size
-                    while(myClient.inFlightPackets < myClient.windowSize)
+                    while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
                         for (int i = 0; i < file_data.length(); i += 30)
                         {
@@ -179,8 +181,9 @@ public class client
                                 size = count;
                             }
                             send_string = new String(send_data);
-                            seq_no = myClient.currentPacketNumber % myClient.windowSize;
+                            seq_no = myClient.currentPacketNumber % (myClient.windowSize + 1);
                             p = new packet(1, seq_no, size, send_string);
+                            resend_buf[seq_no] = p;
                             myClient.currentPacketNumber++;
                             myClient.sendToEmulator(p);
                             myClient.window[seq_no] = 1;
@@ -190,11 +193,12 @@ public class client
                     //ack stage
                     byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
                     DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
+
                     myClient.receiveSocket.receive(receivePacket);
                     packet ack = myClient.deserializePacket(receivePacket.getData());
                     last_acked_packNum = ack.getSeqNum();
 
-                    for(int i = 0; i < myClient.windowSize; i++)
+                    for(int i = 0; i <= myClient.windowSize; i++)
                     {
                         if(i < last_acked_packNum)
                         {
@@ -209,13 +213,17 @@ public class client
 
                     if(is_last_packet)
                     {
+                        //EOT packet
+                        p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
+                        myClient.sendToEmulator(p);
+                    }
+                    if(ack.getType() == 2)
+                    {
                         break;
                     }
 
                 }
-                //EOT packet
-                p = new packet(3, myClient.currentPacketNumber % myClient.windowSize, 0, null);
-                myClient.sendToEmulator(p);
+
             }
             catch (Exception e)
             {
