@@ -74,6 +74,7 @@ public class server {
                                 System.err.println("Data packet received: " + this.currentPacketNumber);
                                 this.nextSeqNumber = getNextNumberInModSequence(this.nextSeqNumber,this.windowBufferSize);
                                 this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
+                                System.err.println("Ack sent: "+this.currentPacketNumber);
                                 this.writeDataToFile.write(myPacket.getData()); //write data to file
                             }
                             this.writeSeqToFile.println(this.currentPacketNumber);    //write sequence number of received packet to file

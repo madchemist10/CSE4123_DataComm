@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -235,14 +236,12 @@ public class client
     }
 
 
-
     public static void main(String[] args)
     {
         if (args.length == 4) //ensure all parameters are passed to client construct
         {
             try
             {
-
                 client myClient = new client(args);
                 myClient.writeSeqToFile = new PrintWriter(new BufferedWriter(new FileWriter("seqnum.log", true)));
                 myClient.writeAckToFile = new PrintWriter(new BufferedWriter(new FileWriter("ack.log", true)));
@@ -251,7 +250,7 @@ public class client
                 byte[] send_data;
                 String send_string;
                 FileInputStream file_in_stream;
-                int last_acked_packNum;
+                int last_acked_packNum = 0;
                 boolean EOTFromServer = false;
                 int numBytesSent;
 
@@ -272,8 +271,9 @@ public class client
                 }
 
                 myClient.createServerConnection();
+                myClient.receiveSocket.setSoTimeout(800);   //set timeout on receive
                 packet p;
-                int seq_no;
+                int seq_no = 0;
                 boolean is_last_packet = false;
 
                 /**Loop until EOT from Server*/
@@ -283,6 +283,7 @@ public class client
                      * and the last packet not found.*/
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
+                        System.err.println("");
                         numBytesSent = myClient.currentPosition;    //set to previous position
                         send_data = myClient.getDataFromByteArray(myClient.byteBufferSize,buffer);
                         if (myClient.currentPosition >= file_data.length()){
@@ -305,30 +306,33 @@ public class client
                     //ack stage
                     byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
                     DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
-
+                    packet ack = new packet(0,0,0,"");
+                    int currSeqNumber = myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize);
                     //timer
-                    System.err.println("Waiting for Ack From Server");
-                    myClient.receiveSocket.receive(receivePacket);
-                    packet ack = myClient.deserializePacket(receivePacket.getData());
-//                    ack.printContents();
-                    last_acked_packNum = ack.getSeqNum();
-                    System.err.println("Ack Received: "+last_acked_packNum);
-                    myClient.writeAckToFile.println(last_acked_packNum);
+                    try {
+                        System.err.println("Waiting for Ack From Server");
+                        myClient.receiveSocket.receive(receivePacket);
+                        ack = myClient.deserializePacket(receivePacket.getData());
+                        last_acked_packNum = ack.getSeqNum();
+                        System.err.println("Ack Received: " + last_acked_packNum);
+                        myClient.writeAckToFile.println(last_acked_packNum);
+                    } catch (SocketTimeoutException socketTimeoutE){
+                            System.err.println("Timeout");
+                    }
 
                     /**Last Ack is less than current sequence number
-                     * decrement in-flight Packets by that amount*/
-                    if(last_acked_packNum < myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize)){
+                     * decrement in-flight Packets by that amount
+                     * and
+                     * increment sending base by amount of ack*/
+
+                    if(last_acked_packNum < currSeqNumber){
                         myClient.decrementInFlightPackets(last_acked_packNum,myClient.windowBufferSize);
                         myClient.incrementSendingBase(last_acked_packNum,myClient.windowBufferSize);
                     }
                     System.err.println("InFlight: "+myClient.inFlightPackets);
                     /**Resend Data*/
-                    //if lastAck !=
                     System.err.println("LastAck: "+last_acked_packNum+", CurrentSeq-1: "+(myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize)));
-//                    if(last_acked_packNum != myClient.mySendingBase){
-//                        //resent all data back to lastAck
-//                        myClient.resendData(last_acked_packNum);
-//                    }
+
                     /**If last packet is detected*/
                     if(is_last_packet)
                     {
