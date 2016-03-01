@@ -68,12 +68,12 @@ public class server {
                             if (this.currentPacketType == 3){   //if packet type is EOT from client
                                 System.err.println("EOT packet received: " + this.currentPacketNumber);
                                 this.sendToEmulator(createEOTPacket(this.currentPacketNumber));
-
-                                this.EOTFlag = true;
+                                this.EOTFlag = true;    //set flag because we received EOT packet
                             }
                             if (this.currentPacketType == 1) {  //if packet type is data packet
                                 System.err.println("Data packet received: " + this.currentPacketNumber);
-                                this.nextSeqNumber++;   //increment desired sequence number
+//                                this.nextSeqNumber++;   //increment desired sequence number
+                                this.nextSeqNumber = getNextNumberInModSequence(this.nextSeqNumber,this.windowBufferSize);
                                 this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
                                 this.writeDataToFile.write(myPacket.getData()); //write data to file
                             }
@@ -95,11 +95,11 @@ public class server {
                 }
             }
             this.closeServerConnection();
+            this.writeDataToFile.close();
+            this.writeSeqToFile.close();
         }catch (Exception e) {
             System.err.println(e.getClass().getName() + ": " + e.getMessage());
         }
-        this.writeDataToFile.close();
-        this.writeSeqToFile.close();
     }
 
     /**Establish Server Connections*/
@@ -180,6 +180,16 @@ public class server {
         } return null;
     }
 
+    /**Get Next Number in Modular Sequence*/
+    public int getNextNumberInModSequence(int number, int modular){
+        if (number == modular-1){
+            number = 0;
+        }
+        else{
+            number++;
+        }
+        return number;
+    }
     public static void main(String[] args) {
         if (args.length == 4) { //ensure all parameters are passed to server construct
             server myServer = new server(args);

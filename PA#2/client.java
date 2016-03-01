@@ -2,25 +2,27 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
 
 /**
-* Created by JD Stewart on 2/28/2016.
-* This is ClientSide of Programming Assignment #2
-* CSE4123 Data Comm
+ * Created by JD Stewart on 2/28/2016.
+ * This is ClientSide of Programming Assignment #2
+ * CSE4123 Data Comm
  * Partner: JJ Kemp, jhk114
-*/
+ */
 
 public class client
 {
     public int byteBufferSize = 30;
     public int windowSize = 7;
     public int windowBufferSize = 8;
-    public int[] window = new int[windowBufferSize];   //keep track of what is on wire
+    public packet[] window = new packet[windowBufferSize];   //keep track of what is on wire
+    public int windowPosition;
     public boolean resendFlag = false;
+    public Timer timeout;
+
     public int inFlightPackets = 0;
     /**User CommandLine Variables*/
     private String emulatorHostName;
@@ -32,6 +34,9 @@ public class client
     public DatagramSocket sendSocket;
     /**Status Variables*/
     public int currentPacketNumber;
+    public int currentPosition;
+    public PrintWriter writeSeqToFile;
+    public PrintWriter writeAckToFile;
 
 
     public client (String[] args)
@@ -42,8 +47,11 @@ public class client
             this.sendToEmulatorPort = Integer.parseInt(args[1]);
             this.receiveFromEmulatorPort = Integer.parseInt(args[2]);
             this.userSpecifiedFilename = args[3];
-
+            this.currentPosition = 0;
+            this.windowPosition = 0;
+            this.currentPacketNumber = 0;
             Arrays.fill(this.window, 0);
+            this.timeout = new Timer();
         }
         catch (Exception e)
         {
@@ -137,6 +145,47 @@ public class client
         }
         return null;
     }
+    /**Retrieve segment of data from larger set*/
+    public byte[] getDataFromByteArray(int maxBytes, byte[] data){
+        int index = 0;
+        byte[] newData = new byte[maxBytes];
+        /**While current index less than max bytes to pull
+         * and current position less than total data length*/
+        while(index < maxBytes && index+this.currentPosition < data.length){
+            newData[index] = data[index+this.currentPosition];
+            index++;
+        }
+        this.currentPosition+=index;    //increase current position by elements retrieved
+//        System.err.println("Index: "+index+", newData: "+Arrays.toString(newData));
+        return newData;
+    }
+
+    /**Get next sequenceNumber*/
+    public int getCurrentSeqNumber(){
+        return this.currentPacketNumber%this.windowBufferSize;
+    }
+    /**Get next windowPositionNumber*/
+    public int getNextWindowPositionNumber(int currentPos){
+        //if currentPos == maxWindow -1
+        if (currentPos == this.windowBufferSize-1){
+            currentPos = 0;
+        }
+        else{
+            currentPos++;
+        }
+        return currentPos;
+    }
+    /**Get Next Number in Modular Sequence*/
+    public int getNextNumberInModSequence(int number, int modular){
+        if (number == modular-1){
+            number = 0;
+        }
+        else{
+            number++;
+        }
+        return number;
+    }
+
 
 
     public static void main(String[] args)
@@ -145,15 +194,18 @@ public class client
         {
             try
             {
+
                 client myClient = new client(args);
+                myClient.writeSeqToFile = new PrintWriter(new BufferedWriter(new FileWriter("seqnum.log", true)));
+                myClient.writeAckToFile = new PrintWriter(new BufferedWriter(new FileWriter("ack.log", true)));
                 File file_data = new File(myClient.userSpecifiedFilename);
                 byte[] buffer = new byte[(int) file_data.length() + 1];
-                byte[] send_data = new byte[myClient.byteBufferSize];
+                byte[] send_data;
                 String send_string;
                 FileInputStream file_in_stream;
-                int current_pos = 0;
-                int last_acked_packNum = 0;
+                int last_acked_packNum;
                 boolean EOTFromServer = false;
+                int numBytesSent;
 
 
                 //convert file to an array of bytes
@@ -172,140 +224,83 @@ public class client
                 }
 
                 myClient.createServerConnection();
-                //throws a socket exception if it hasn't received within 800 ms
-                myClient.receiveSocket.setSoTimeout(800);
                 packet p;
-                packet ack = new packet(0,0,0,null);
-                packet[] resend_buf = new packet[myClient.windowBufferSize];
-                int size = 0;
                 int seq_no;
-                int num_acks = 0;
                 boolean is_last_packet = false;
-                myClient.currentPacketNumber = 0;
 
                 /**Loop until EOT from Server*/
                 while(!EOTFromServer)
                 {
-                    //check to see if within window size
+                    /**While the number of in-flight packets is less than windows size
+                     * and the last packet not found.*/
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
-                        for (int i = 0; i < file_data.length(); i += 30)
-                        {
-                            //clear out the send data array before every packet
-                            for (int count = 0; count < 30; count++)
-                            {
-                                send_data[count] = 0;
-                            }
-                            //fill send data array with 30 bytes from the buffer
-                            for (int count = 0; count < 30; count++)
-                            {
-                                if (current_pos >= file_data.length())
-                                {
-                                    is_last_packet = true;
-                                    break;
-                                }
-                                send_data[count] = buffer[current_pos];
-                                current_pos++;
-                                size = count;
-                            }
-                            /**Put new packet on the wire*/
-                            send_string = new String(send_data);
-                            seq_no = myClient.currentPacketNumber % myClient.windowBufferSize;
-                            p = new packet(1, seq_no, size+1, send_string);
-                            resend_buf[seq_no] = p;
-                            myClient.currentPacketNumber++;
-                            //start timer here, potential have an array of timers for each packet on wire
-                            System.err.println("Seq num: " + seq_no);
-                            myClient.sendToEmulator(p);
-                            myClient.inFlightPackets++;
-                            //myClient.window[seq_no] = 1;
+                        numBytesSent = myClient.currentPosition;    //set to previous position
+                        send_data = myClient.getDataFromByteArray(myClient.byteBufferSize,buffer);
+                        if (myClient.currentPosition >= file_data.length()){
+                            is_last_packet = true;
                         }
-//                        int counter = 0;    //keep up with number of packets sent on iteration
-                        //while num of packets sent is less than windowsSize - inFlightPackets
-//                        while (counter < (myClient.windowSize-myClient.inFlightPackets))
-//                        {
-
-//                            counter++;
-//                        }
+                        numBytesSent = myClient.currentPosition - numBytesSent; //calculate new position
+                        System.err.println("NumBytesSent: "+numBytesSent+", currentPos: "+myClient.currentPosition);
+                        /**Put new packet on the wire*/
+                        send_string = new String(send_data);
+                        seq_no = myClient.getCurrentSeqNumber();  //calculate sequenceNum
+                        myClient.currentPacketNumber++;
+                        myClient.window[seq_no] = new packet(1, seq_no, numBytesSent, send_string);
+                        System.err.println("Seq num: " + seq_no);
+                        myClient.sendToEmulator(myClient.window[seq_no]);
+                        myClient.writeSeqToFile.println(seq_no);
+                        myClient.inFlightPackets = myClient.getNextNumberInModSequence(myClient.inFlightPackets,myClient.windowBufferSize);
                     }
 
                     //ack stage
-                    try
-                    {
-                        byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
-                        DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
-                        myClient.receiveSocket.receive(receivePacket);
-                        ack = myClient.deserializePacket(receivePacket.getData());
-                        num_acks++;
-                        //last_acked_packNum = ack.getSeqNum();
+                    byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
+                    DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
+
+                    //timer
+                    System.err.println("Waiting for Ack From Server");
+                    myClient.receiveSocket.receive(receivePacket);
+                    packet ack = myClient.deserializePacket(receivePacket.getData());
+                    ack.printContents();
+                    last_acked_packNum = ack.getSeqNum();
+                    myClient.writeAckToFile.println(last_acked_packNum);
+                    if(last_acked_packNum == myClient.getCurrentSeqNumber()-1){
+                        myClient.inFlightPackets = myClient.getNextNumberInModSequence(myClient.inFlightPackets,myClient.windowBufferSize);
                     }
-                    catch (SocketTimeoutException e)
-                    {
-                        current_pos = 30 * num_acks;
-                        //algorithm started at lost packet
-                        for (int i = current_pos; i < file_data.length(); i += 30)
-                        {
-                            //clear out the send data array before every packet
-                            for (int count = 0; count < 30; count++)
-                            {
-                                send_data[count] = 0;
+                    /**Resend Data*/
+                    //if lastAck != lastSentSeqNum
+                    System.err.println("LastAck: "+last_acked_packNum+", CurrentSeq-1: "+(myClient.getCurrentSeqNumber()-1));
+                    if(last_acked_packNum != myClient.getCurrentSeqNumber()-1){
+                        //resent all data back to lastAck
+                        boolean resentComplete = false;
+                        int index = last_acked_packNum;
+                        //send out packets until reached current sequence number
+                        while(!resentComplete){
+                            myClient.sendToEmulator(myClient.window[index]);
+                            myClient.writeSeqToFile.println(myClient.window[index].getSeqNum());
+                            index = myClient.getNextWindowPositionNumber(index);
+                            if (index == myClient.getCurrentSeqNumber()-1){
+                                resentComplete = true;
                             }
-                            //fill send data array with 30 bytes from the buffer
-                            for (int count = 0; count < 30; count++)
-                            {
-                                if (current_pos >= file_data.length())
-                                {
-                                    is_last_packet = true;
-                                    break;
-                                }
-                                send_data[count] = buffer[current_pos];
-                                current_pos++;
-                                size = count;
-                            }
-                            /**Put new packet on the wire*/
-                            send_string = new String(send_data);
-                            seq_no = ack.getSeqNum();
-                            p = new packet(1, seq_no, size+1, send_string);
-                            resend_buf[seq_no] = p;
-                            myClient.currentPacketNumber++;
-                            myClient.sendToEmulator(p);
-                            myClient.inFlightPackets++;
-                            //myClient.window[seq_no] = 1;
                         }
                     }
-
-                    /**For each element in window buffer*/
-                   /* for(int i = 0; i < myClient.windowBufferSize; i++)
-                    {
-                        *//**If index less than seqNum in Ack*//*
-                        if(i < last_acked_packNum)
-                        {
-                            myClient.window[i] = 0; //set index to be received
-                            myClient.inFlightPackets--; //decrement packets on wire
-                        }
-                        *//**If index is on wire*//*
-                        if(myClient.window[i] == 1)
-                        {
-                            myClient.inFlightPackets++; //increment packets on wire
-                        }
-                    }*/
-
                     /**If last packet is detected*/
                     if(is_last_packet)
                     {
                         //EOT packet
-                        p = new packet(3, myClient.currentPacketNumber % myClient.windowBufferSize, 0, null);
+                        p = new packet(3, myClient.getCurrentSeqNumber(), 0, null);
                         myClient.sendToEmulator(p);
+                        myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
                     }
                     /**If received packet type is EOT from Server*/
                     if(ack.getType() == 2)
                     {
                         EOTFromServer = true;   //set EOT Flag
                     }
-
                 }
                 myClient.closeServerConnection();
-
+                myClient.writeAckToFile.close();
+                myClient.writeSeqToFile.close();
             }
             catch (Exception e)
             {
