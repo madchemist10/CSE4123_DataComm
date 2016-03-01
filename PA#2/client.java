@@ -22,6 +22,7 @@ public class client
     public int windowPosition;
     public boolean resendFlag = false;
     public Timer timeout;
+    public int mySendingBase;
 
     public int inFlightPackets = 0;
     /**User CommandLine Variables*/
@@ -50,6 +51,7 @@ public class client
             this.currentPosition = 0;
             this.windowPosition = 0;
             this.currentPacketNumber = 0;
+            this.mySendingBase = 0;
             Arrays.fill(this.window, 0);
             this.timeout = new Timer();
         }
@@ -185,6 +187,52 @@ public class client
         }
         return number;
     }
+    /**Get Previous Number in Modular Sequence*/
+    public int getPrevNumberInModSequence(int number, int modular){
+        if (number == 0){
+            number = modular-1;
+        }
+        else{
+            number--;
+        }
+        return number;
+    }
+    /**Resend Data To Wire*/
+    public void resendData(int lastAckSeqNumber){
+        boolean resentComplete = false;
+        int index = lastAckSeqNumber;
+        //send out packets until reached current sequence number
+        while(!resentComplete){
+            this.sendToEmulator(this.window[index]);
+            this.inFlightPackets++;
+            this.writeSeqToFile.println(this.window[index].getSeqNum());
+            index = this.getNextWindowPositionNumber(index);
+            if (index == this.getCurrentSeqNumber()-1){
+                resentComplete = true;
+            }
+        }
+    }
+    /**Decrement InFlightPackets*/
+    public void decrementInFlightPackets(int receivedAckNum, int modular){
+//        int packetsAcked = 0;
+//        int previousNum = this.getPrevNumberInModSequence(receivedAckNum,modular);
+//        while(previousNum != this.inFlightPackets){
+//            packetsAcked++;
+//        }
+//        this.inFlightPackets -= packetsAcked;
+        this.inFlightPackets -= receivedAckNum+1;
+    }
+
+    /**Increment SendingBase*/
+    public void incrementSendingBase(int receivedAckNum, int modular){
+        do{
+            if (this.mySendingBase == receivedAckNum){
+                this.mySendingBase = getNextNumberInModSequence(this.mySendingBase,modular);
+                break;
+            }
+            this.mySendingBase = getNextNumberInModSequence(this.mySendingBase,modular);
+        }while(this.mySendingBase != receivedAckNum);
+    }
 
 
 
@@ -250,7 +298,8 @@ public class client
                         System.err.println("Seq num: " + seq_no);
                         myClient.sendToEmulator(myClient.window[seq_no]);
                         myClient.writeSeqToFile.println(seq_no);
-                        myClient.inFlightPackets = myClient.getNextNumberInModSequence(myClient.inFlightPackets,myClient.windowBufferSize);
+                        myClient.inFlightPackets++;
+                        System.err.println("InFlight: "+myClient.inFlightPackets);
                     }
 
                     //ack stage
@@ -261,29 +310,25 @@ public class client
                     System.err.println("Waiting for Ack From Server");
                     myClient.receiveSocket.receive(receivePacket);
                     packet ack = myClient.deserializePacket(receivePacket.getData());
-                    ack.printContents();
+//                    ack.printContents();
                     last_acked_packNum = ack.getSeqNum();
+                    System.err.println("Ack Received: "+last_acked_packNum);
                     myClient.writeAckToFile.println(last_acked_packNum);
-                    if(last_acked_packNum == myClient.getCurrentSeqNumber()-1){
-                        myClient.inFlightPackets = myClient.getNextNumberInModSequence(myClient.inFlightPackets,myClient.windowBufferSize);
+
+                    /**Last Ack is less than current sequence number
+                     * decrement in-flight Packets by that amount*/
+                    if(last_acked_packNum < myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize)){
+                        myClient.decrementInFlightPackets(last_acked_packNum,myClient.windowBufferSize);
+                        myClient.incrementSendingBase(last_acked_packNum,myClient.windowBufferSize);
                     }
+                    System.err.println("InFlight: "+myClient.inFlightPackets);
                     /**Resend Data*/
-                    //if lastAck != lastSentSeqNum
-                    System.err.println("LastAck: "+last_acked_packNum+", CurrentSeq-1: "+(myClient.getCurrentSeqNumber()-1));
-                    if(last_acked_packNum != myClient.getCurrentSeqNumber()-1){
-                        //resent all data back to lastAck
-                        boolean resentComplete = false;
-                        int index = last_acked_packNum;
-                        //send out packets until reached current sequence number
-                        while(!resentComplete){
-                            myClient.sendToEmulator(myClient.window[index]);
-                            myClient.writeSeqToFile.println(myClient.window[index].getSeqNum());
-                            index = myClient.getNextWindowPositionNumber(index);
-                            if (index == myClient.getCurrentSeqNumber()-1){
-                                resentComplete = true;
-                            }
-                        }
-                    }
+                    //if lastAck !=
+                    System.err.println("LastAck: "+last_acked_packNum+", CurrentSeq-1: "+(myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize)));
+//                    if(last_acked_packNum != myClient.mySendingBase){
+//                        //resent all data back to lastAck
+//                        myClient.resendData(last_acked_packNum);
+//                    }
                     /**If last packet is detected*/
                     if(is_last_packet)
                     {

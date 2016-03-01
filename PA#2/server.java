@@ -72,7 +72,6 @@ public class server {
                             }
                             if (this.currentPacketType == 1) {  //if packet type is data packet
                                 System.err.println("Data packet received: " + this.currentPacketNumber);
-//                                this.nextSeqNumber++;   //increment desired sequence number
                                 this.nextSeqNumber = getNextNumberInModSequence(this.nextSeqNumber,this.windowBufferSize);
                                 this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
                                 this.writeDataToFile.write(myPacket.getData()); //write data to file

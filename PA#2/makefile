@@ -15,4 +15,4 @@ default: classes
 classes: $(CLASSES:.java=.class)
 
 clean:
-	 $(RM) client.class server.class packet.class output.txt arrival.log
+	 $(RM) client.class server.class packet.class output.txt arrival.log ack.log seqnum.log
