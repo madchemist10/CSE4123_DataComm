@@ -58,7 +58,7 @@ public class client
         }
         catch (Exception e)
         {
-            System.err.println(e.getClass().getName() + ": " + e.getMessage());
+            System.out.println(e.getClass().getName() + ": " + e.getMessage());
         }
     }
 
@@ -74,7 +74,7 @@ public class client
         }
         catch(Exception e)
         {
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         } return false;
     }
 
@@ -84,7 +84,7 @@ public class client
             this.receiveSocket.close();
             this.sendSocket.close();
         } catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
     }
 
@@ -96,7 +96,7 @@ public class client
             byte[] myBytes = serializePacket(myPacket);
             if (myBytes == null)
             {
-                System.err.println("Serialize Returned Null!");
+                System.out.println("Serialize Returned Null!");
                 return;
             }
             DatagramPacket myDatagramPacket = new DatagramPacket(myBytes, myBytes.length);
@@ -104,7 +104,7 @@ public class client
         }
         catch(Exception e)
         {
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
     }
 
@@ -124,7 +124,7 @@ public class client
         }
         catch(Exception e)
         {
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
         return null;
     }
@@ -144,7 +144,7 @@ public class client
         }
         catch(Exception e)
         {
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
         return null;
     }
@@ -159,7 +159,7 @@ public class client
             index++;
         }
         this.currentPosition+=index;    //increase current position by elements retrieved
-//        System.err.println("Index: "+index+", newData: "+Arrays.toString(newData));
+//        System.out.println("Index: "+index+", newData: "+Arrays.toString(newData));
         return newData;
     }
 
@@ -215,13 +215,12 @@ public class client
     }
     /**Decrement InFlightPackets*/
     public void decrementInFlightPackets(int receivedAckNum, int modular){
-//        int packetsAcked = 0;
-//        int previousNum = this.getPrevNumberInModSequence(receivedAckNum,modular);
-//        while(previousNum != this.inFlightPackets){
-//            packetsAcked++;
-//        }
-//        this.inFlightPackets -= packetsAcked;
-        this.inFlightPackets -= receivedAckNum+1;
+        if (this.mySendingBase == receivedAckNum){
+            this.inFlightPackets--;
+        }
+        else{
+            this.inFlightPackets -= (receivedAckNum-this.mySendingBase);
+        }
     }
 
     /**Increment SendingBase*/
@@ -266,7 +265,7 @@ public class client
                 catch (Exception e)
                 {
                     //Fatal Error
-                    System.err.println("Cannot Open File For Input.");
+                    System.out.println("Cannot Open File For Input.");
                     return;
                 }
 
@@ -275,6 +274,7 @@ public class client
                 packet p;
                 int seq_no = 0;
                 boolean is_last_packet = false;
+                boolean EOTSent = false;
 
                 /**Loop until EOT from Server*/
                 while(!EOTFromServer)
@@ -283,24 +283,24 @@ public class client
                      * and the last packet not found.*/
                     while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
                     {
-                        System.err.println("");
+                        System.out.println("");
                         numBytesSent = myClient.currentPosition;    //set to previous position
                         send_data = myClient.getDataFromByteArray(myClient.byteBufferSize,buffer);
                         if (myClient.currentPosition >= file_data.length()){
                             is_last_packet = true;
                         }
                         numBytesSent = myClient.currentPosition - numBytesSent; //calculate new position
-                        System.err.println("NumBytesSent: "+numBytesSent+", currentPos: "+myClient.currentPosition);
+                        System.out.println("NumBytesSent: "+numBytesSent+", currentPos: "+myClient.currentPosition);
                         /**Put new packet on the wire*/
                         send_string = new String(send_data);
                         seq_no = myClient.getCurrentSeqNumber();  //calculate sequenceNum
                         myClient.currentPacketNumber++;
                         myClient.window[seq_no] = new packet(1, seq_no, numBytesSent, send_string);
-                        System.err.println("Seq num: " + seq_no);
+                        System.out.println("Seq num: " + seq_no);
                         myClient.sendToEmulator(myClient.window[seq_no]);
                         myClient.writeSeqToFile.println(seq_no);
                         myClient.inFlightPackets++;
-                        System.err.println("InFlight: "+myClient.inFlightPackets);
+                        System.out.println("InFlight: "+myClient.inFlightPackets);
                     }
 
                     //ack stage
@@ -310,41 +310,50 @@ public class client
                     int currSeqNumber = myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize);
                     //timer
                     try {
-                        System.err.println("Waiting for Ack From Server");
+                        System.out.println("Waiting for Ack From Server");
                         myClient.receiveSocket.receive(receivePacket);
                         ack = myClient.deserializePacket(receivePacket.getData());
                         last_acked_packNum = ack.getSeqNum();
-                        System.err.println("Ack Received: " + last_acked_packNum);
+                        System.out.println("Ack Received: " + last_acked_packNum);
                         myClient.writeAckToFile.println(last_acked_packNum);
                     } catch (SocketTimeoutException socketTimeoutE){
-                            System.err.println("Timeout");
+                        System.out.println("Timeout");
+                        myClient.resendData(last_acked_packNum);
+                        /**If last packet is detected*/
+                        if(is_last_packet && !EOTFromServer)
+                        {
+                            //EOT packet
+                            System.out.println("EOT Packet: "+myClient.getCurrentSeqNumber());
+                            p = new packet(3, myClient.getCurrentSeqNumber(), 0, null);
+                            myClient.sendToEmulator(p);
+                            myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
+                        }
                     }
 
                     /**Last Ack is less than current sequence number
                      * decrement in-flight Packets by that amount
                      * and
                      * increment sending base by amount of ack*/
-
+                    myClient.inFlightPackets--;
+                    System.out.println("SendingBase: "+myClient.mySendingBase);
                     if(last_acked_packNum < currSeqNumber){
-                        myClient.decrementInFlightPackets(last_acked_packNum,myClient.windowBufferSize);
                         myClient.incrementSendingBase(last_acked_packNum,myClient.windowBufferSize);
                     }
-                    System.err.println("InFlight: "+myClient.inFlightPackets);
-                    /**Resend Data*/
-                    System.err.println("LastAck: "+last_acked_packNum+", CurrentSeq-1: "+(myClient.getPrevNumberInModSequence(myClient.getCurrentSeqNumber(),myClient.windowBufferSize)));
-
-                    /**If last packet is detected*/
-                    if(is_last_packet)
-                    {
-                        //EOT packet
-                        p = new packet(3, myClient.getCurrentSeqNumber(), 0, null);
-                        myClient.sendToEmulator(p);
-                        myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
-                    }
+                    System.out.println("InFlight: "+myClient.inFlightPackets);
                     /**If received packet type is EOT from Server*/
                     if(ack.getType() == 2)
                     {
                         EOTFromServer = true;   //set EOT Flag
+                    }
+                    /**If last packet is detected*/
+                    if(is_last_packet && !EOTFromServer && !EOTSent)
+                    {
+                        //EOT packet
+                        System.out.println("EOT Packet: "+myClient.getCurrentSeqNumber());
+                        p = new packet(3, myClient.getCurrentSeqNumber(), 0, null);
+                        myClient.sendToEmulator(p);
+                        myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
+                        EOTSent = true;
                     }
                 }
                 myClient.closeServerConnection();
@@ -353,12 +362,12 @@ public class client
             }
             catch (Exception e)
             {
-                System.err.println(e.getClass().getName()+": "+e.getMessage());
+                System.out.println(e.getClass().getName()+": "+e.getMessage());
             }
         }
         else
         {
-            System.err.println("Incorrect Parameters Given");
+            System.out.println("Incorrect Parameters Given");
         }
 
     }

@@ -61,20 +61,20 @@ public class server {
                     this.receiveSocket.receive(receivePacket);
                     packet myPacket = deserializePacket(receivePacket.getData());
                     if (myPacket != null) { //if we have a valid packet
-                        //myPacket.printContents();
+//                        myPacket.printContents();
                         this.currentPacketNumber = myPacket.getSeqNum();    //retrieve sequence number
                         this.currentPacketType = myPacket.getType();    //retrieve packet type
                         if (this.nextSeqNumber == this.currentPacketNumber){    //if sequence number is desired sequence number
                             if (this.currentPacketType == 3){   //if packet type is EOT from client
-                                System.err.println("EOT packet received: " + this.currentPacketNumber);
+                                System.out.println("EOT packet received: " + this.currentPacketNumber);
                                 this.sendToEmulator(createEOTPacket(this.currentPacketNumber));
                                 this.EOTFlag = true;    //set flag because we received EOT packet
                             }
                             if (this.currentPacketType == 1) {  //if packet type is data packet
-                                System.err.println("Data packet received: " + this.currentPacketNumber);
+                                System.out.println("Data packet received: " + this.currentPacketNumber);
                                 this.nextSeqNumber = getNextNumberInModSequence(this.nextSeqNumber,this.windowBufferSize);
                                 this.sendToEmulator(createAckPacket(this.currentPacketNumber)); //send ack to client for sequence number received
-                                System.err.println("Ack sent: "+this.currentPacketNumber);
+                                System.out.println("Ack sent: "+this.currentPacketNumber);
                                 this.writeDataToFile.write(myPacket.getData()); //write data to file
                             }
                             this.writeSeqToFile.println(this.currentPacketNumber);    //write sequence number of received packet to file
@@ -86,19 +86,19 @@ public class server {
                              * I need to recent ack for packet 3
                              * seqNum = 4+7= 11%8 = 3
                              * */
-                            System.err.println("Resend ack" + (this.nextSeqNumber+this.windowSize)%this.windowBufferSize);
+                            System.out.println("Resend ack" + (this.nextSeqNumber+this.windowSize)%this.windowBufferSize);
                             sendToEmulator(createAckPacket((this.nextSeqNumber+this.windowSize)%this.windowBufferSize));
                         }
                     }
                 } catch (Exception e) {
-                    System.err.println(e.getClass().getName() + ": " + e.getMessage());
+                    System.out.println(e.getClass().getName() + ": " + e.getMessage());
                 }
             }
             this.closeServerConnection();
             this.writeDataToFile.close();
             this.writeSeqToFile.close();
         }catch (Exception e) {
-            System.err.println(e.getClass().getName() + ": " + e.getMessage());
+            System.out.println(e.getClass().getName() + ": " + e.getMessage());
         }
     }
 
@@ -110,7 +110,7 @@ public class server {
             this.sendSocket.connect(InetAddress.getByName(this.emulatorHostName),this.sendToEmulatorPort);
             return true;
         } catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         } return false;
     }
 
@@ -120,7 +120,7 @@ public class server {
             this.receiveSocket.close();
             this.sendSocket.close();
         } catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
     }
 
@@ -129,13 +129,13 @@ public class server {
         try {
             byte[] myBytes = serializePacket(myPacket);
             if (myBytes == null){
-                System.err.println("Serialize Returned Null!");
+                System.out.println("Serialize Returned Null!");
                 return;
             }
             DatagramPacket myDatagramPacket = new DatagramPacket(myBytes, myBytes.length);
             this.sendSocket.send(myDatagramPacket);
         } catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         }
     }
 
@@ -161,7 +161,7 @@ public class server {
             myByteArrayOutStream.close();
             return myObjInBytes;
         } catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         } return null;
     }
 
@@ -176,7 +176,7 @@ public class server {
             myObjInStream.close();
             return (packet) myPacket;
         }catch(Exception e){
-            System.err.println(e.getClass().getName()+": "+e.getMessage());
+            System.out.println(e.getClass().getName()+": "+e.getMessage());
         } return null;
     }
 
