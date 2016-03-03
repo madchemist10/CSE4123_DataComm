@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketTimeoutException;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -161,7 +162,6 @@ public class client
             index++;
         }
         this.currentPosition+=index;    //increase current position by elements retrieved
-//        System.out.println("Index: "+index+", newData: "+Arrays.toString(newData));
         return newData;
     }
 
@@ -207,34 +207,20 @@ public class client
         //send out packets until reached current sequence number
         while(!resentComplete){
             this.sendToEmulator(this.window[index]);
+            System.out.println("\nResending: "+this.window[index].getSeqNum()+"\n");
             this.writeSeqToFile.println(this.window[index].getSeqNum());
             index = this.getNextWindowPositionNumber(index);
-            if (index == this.getCurrentSeqNumber()-1){
+            if (index == this.getCurrentSeqNumber()){
                 resentComplete = true;
             }
         }
     }
-    /**Decrement InFlightPackets*/
-    public void decrementInFlightPackets(int receivedAckNum, int modular){
-        if (this.mySendingBase == receivedAckNum){
-            this.inFlightPackets--;
-        }
-        else{
-            this.inFlightPackets -= (receivedAckNum-this.mySendingBase);
-        }
-    }
 
     /**Increment SendingBase*/
-    public void incrementSendingBase(int receivedAckNum, int modular){
-        do{
-            if (this.mySendingBase == receivedAckNum){
-                this.mySendingBase = getNextNumberInModSequence(this.mySendingBase,modular);
-                break;
-            }
-            this.mySendingBase = getNextNumberInModSequence(this.mySendingBase,modular);
-        }while(this.mySendingBase != receivedAckNum);
+    public void incrementSendingBase(){
+        this.mySendingBase = (this.mySendingBase+1)%this.windowBufferSize;
     }
-
+    /**Start Timer*/
     public void startTimer()
     {
         final int resendAck = this.mySendingBase;
@@ -245,13 +231,14 @@ public class client
             {
                 System.out.println("\n Resending... \n");
                 resendData(resendAck);
+                System.out.println("\n  Complete Resend\n");
                 this.cancel();
             }
         };
         this.resendTimer = new Timer();
-        this.resendTimer.schedule(this.resendTask, 800);
+        this.resendTimer.schedule(this.resendTask, 800, 800);
     }
-
+    /**Stop Timer*/
     public void stopTimer()
     {
         this.resendTask.cancel();
@@ -270,7 +257,7 @@ public class client
                 myClient.writeSeqToFile = new PrintWriter(new BufferedWriter(new FileWriter("seqnum.log", true)));
                 myClient.writeAckToFile = new PrintWriter(new BufferedWriter(new FileWriter("ack.log", true)));
                 File file_data = new File(myClient.userSpecifiedFilename);
-                byte[] buffer = new byte[(int) file_data.length() + 1];
+                byte[] buffer = new byte[(int) file_data.length()];
                 byte[] send_data;
                 String send_string;
                 FileInputStream file_in_stream;
@@ -296,7 +283,6 @@ public class client
                 }
 
                 myClient.createServerConnection();
-                myClient.receiveSocket.setSoTimeout(800);   //set timeout on receive
                 packet p;
                 int seq_no = 0;
                 boolean is_last_packet = false;
@@ -305,17 +291,28 @@ public class client
                 /**Loop until EOT from Server*/
                 while(!EOTFromServer)
                 {
+                    System.out.println("--------------------------------------------");
                     /**While the number of in-flight packets is less than windows size
                      * and the last packet not found.*/
-                    while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet)
+                    while(myClient.inFlightPackets < myClient.windowSize && !is_last_packet && !EOTSent)
                     {
-                        System.out.println("");
+
+                        System.out.println("--------------------------------------------");
                         numBytesSent = myClient.currentPosition;    //set to previous position
                         send_data = myClient.getDataFromByteArray(myClient.byteBufferSize,buffer);
                         if (myClient.currentPosition >= file_data.length()){
                             is_last_packet = true;
                         }
                         numBytesSent = myClient.currentPosition - numBytesSent; //calculate new position
+
+                        /**Make sure length of packet is same as length of byte buffer*/
+                        if (numBytesSent != send_data.length){
+                            byte[] myBytes = new byte[numBytesSent];
+                            for(int i = 0; i < numBytesSent; i++){
+                                myBytes[i] = send_data[i];
+                            }
+                            send_data = myBytes;
+                        }
                         System.out.println("NumBytesSent: "+numBytesSent+", currentPos: "+myClient.currentPosition);
                         /**Put new packet on the wire*/
                         send_string = new String(send_data);
@@ -328,15 +325,18 @@ public class client
                         myClient.inFlightPackets++;
                         System.out.println("InFlight: "+myClient.inFlightPackets);
                     }
-
                     //ack stage
                     byte[] temp_buf = new byte[myClient.byteBufferSize * 4];
                     DatagramPacket receivePacket = new DatagramPacket(temp_buf, temp_buf.length);
-                    packet ack = new packet(0,0,0,"");
-                    //timer
+                    packet ack;
                     System.out.println("Waiting for Ack From Server");
                     myClient.startTimer();
-                    myClient.receiveSocket.receive(receivePacket);
+                    try {
+                        myClient.receiveSocket.receive(receivePacket);
+                    }catch(SocketTimeoutException e){
+                        System.out.println("-----Socket Timeout-----");
+                        break;
+                    }
                     ack = myClient.deserializePacket(receivePacket.getData());
                     last_acked_packNum = ack.getSeqNum();
                     System.out.println("Ack Received: " + last_acked_packNum);
@@ -347,29 +347,45 @@ public class client
                      * decrement in-flight Packets by that amount
                      * and
                      * increment sending base by amount of ack*/
+
+                    System.out.println("SendingBase: "+myClient.mySendingBase);
                     if(myClient.mySendingBase  == last_acked_packNum)
                     {
+                        System.out.println("\nSendingBase ===== LastAckPackNum\n");
                         myClient.inFlightPackets--;
-                        myClient.mySendingBase = last_acked_packNum;
+                        myClient.incrementSendingBase();
                         myClient.stopTimer();
+                        System.out.println("\nNewSendingBase = "+myClient.mySendingBase);
+                    }
+                    else if(myClient.mySendingBase > last_acked_packNum)
+                    {
+                        System.out.println("\nSendingBase >> LastAckPackNum\n");
+                        //basically let the timeout handle this operation
+                    }
+                    else if(myClient.mySendingBase == 0 && last_acked_packNum == 7)
+                    {
+                        System.out.println("\nSendingBase==0 && LastAckPackNum==7\n");
+                        //basically let the timeout handle this operation
                     }
                     else
                     {
-                        for(int i = 0; i < myClient.windowBufferSize; i++)
+                        System.out.println("\nSendingBase ==!!== LastAckPackNum\n");
+                        for(int i = 1; i < myClient.windowBufferSize; i++)
                         {
                             if((myClient.mySendingBase + i) % myClient.windowBufferSize == last_acked_packNum)
                             {
-                                myClient.inFlightPackets -= i;
-                                myClient.mySendingBase = ((myClient.mySendingBase + i) % myClient.windowBufferSize);
+                                myClient.inFlightPackets -= (i+1);
                             }
                         }
+                        myClient.mySendingBase = (last_acked_packNum+1)%myClient.windowBufferSize;
+                        myClient.stopTimer();
+                        System.out.println("\nNewSendingBase = "+myClient.mySendingBase);
                     }
 
-                    System.out.println("SendingBase: "+myClient.mySendingBase);
 
-                    System.out.println("InFlight: "+myClient.inFlightPackets);
+                    System.out.println("Final InFlight: "+myClient.inFlightPackets);
                     /**If received packet type is EOT from Server*/
-                    if(ack.getType() == 2)
+                    if(ack.getType() == 2 && EOTSent)
                     {
                         EOTFromServer = true;   //set EOT Flag
                     }
@@ -380,6 +396,8 @@ public class client
                         System.out.println("EOT Packet: "+myClient.getCurrentSeqNumber());
                         p = new packet(3, myClient.getCurrentSeqNumber(), 0, null);
                         myClient.sendToEmulator(p);
+                        myClient.stopTimer();
+                        myClient.inFlightPackets++;
                         myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
                         EOTSent = true;
                     }
