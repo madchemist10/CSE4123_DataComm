@@ -201,9 +201,9 @@ public class client
         return number;
     }
     /**Resend Data To Wire*/
-    public void resendData(int lastAckSeqNumber){
+    public void resendData(){
         boolean resentComplete = false;
-        int index = lastAckSeqNumber;
+        int index = this.mySendingBase;
         //send out packets until reached current sequence number
         while(!resentComplete){
             this.sendToEmulator(this.window[index]);
@@ -214,6 +214,8 @@ public class client
                 resentComplete = true;
             }
         }
+        System.out.println("TimerTask: Start mysendingBase = "+ this.mySendingBase);
+        System.out.println("TimerTask: Current Seg Num On Wire = "+(this.getCurrentSeqNumber()-1));
     }
 
     /**Increment SendingBase*/
@@ -223,20 +225,21 @@ public class client
     /**Start Timer*/
     public void startTimer()
     {
-        final int resendAck = this.mySendingBase;
+        System.out.println("Timer: Start mysendingBase = "+ this.mySendingBase);
+        System.out.println("Timer: Current Seg Num = "+(this.getCurrentSeqNumber()-1));
         this.resendTask = new TimerTask()
         {
             @Override
             public void run()
             {
                 System.out.println("\n Resending... \n");
-                resendData(resendAck);
+                resendData();
                 System.out.println("\n  Complete Resend\n");
                 this.cancel();
             }
         };
         this.resendTimer = new Timer();
-        this.resendTimer.schedule(this.resendTask, 800, 800);
+        this.resendTimer.schedule(this.resendTask, 800);
     }
     /**Stop Timer*/
     public void stopTimer()
@@ -400,6 +403,10 @@ public class client
                         myClient.inFlightPackets++;
                         myClient.writeSeqToFile.println(myClient.getCurrentSeqNumber());
                         EOTSent = true;
+                    }
+                    if(myClient.inFlightPackets < 0){
+                        System.out.println("INFLIGHTPACKETS < 0");
+                        break;
                     }
                 }
                 myClient.closeServerConnection();
