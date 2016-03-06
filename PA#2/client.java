@@ -180,26 +180,7 @@ public class client
         }
         return currentPos;
     }
-    /**Get Next Number in Modular Sequence*/
-    public int getNextNumberInModSequence(int number, int modular){
-        if (number == modular-1){
-            number = 0;
-        }
-        else{
-            number++;
-        }
-        return number;
-    }
-    /**Get Previous Number in Modular Sequence*/
-    public int getPrevNumberInModSequence(int number, int modular){
-        if (number == 0){
-            number = modular-1;
-        }
-        else{
-            number--;
-        }
-        return number;
-    }
+
     /**Resend Data To Wire*/
     public void resendData(){
         boolean resentComplete = false;
@@ -286,6 +267,7 @@ public class client
                 }
 
                 myClient.createServerConnection();
+                myClient.receiveSocket.setSoTimeout(800);
                 packet p;
                 int seq_no = 0;
                 boolean is_last_packet = false;
@@ -336,10 +318,7 @@ public class client
                     myClient.startTimer();
                     try {
                         myClient.receiveSocket.receive(receivePacket);
-                    }catch(SocketTimeoutException e){
-                        System.out.println("-----Socket Timeout-----");
-                        break;
-                    }
+
                     ack = myClient.deserializePacket(receivePacket.getData());
                     last_acked_packNum = ack.getSeqNum();
                     System.out.println("Ack Received: " + last_acked_packNum);
@@ -360,10 +339,10 @@ public class client
                         myClient.stopTimer();
                         System.out.println("\nNewSendingBase = "+myClient.mySendingBase);
                     }
-                    else if(myClient.mySendingBase > last_acked_packNum)
+                    else if((myClient.mySendingBase+myClient.windowSize)%myClient.windowBufferSize == last_acked_packNum)
                     {
                         System.out.println("\nSendingBase >> LastAckPackNum\n");
-                        //basically let the timeout handle this operation
+                            //basically let the timeout handle this operation
                     }
                     else if(myClient.mySendingBase == 0 && last_acked_packNum == 7)
                     {
@@ -375,13 +354,17 @@ public class client
                         System.out.println("\nSendingBase ==!!== LastAckPackNum\n");
                         for(int i = 1; i < myClient.windowBufferSize; i++)
                         {
-                            if((myClient.mySendingBase + i) % myClient.windowBufferSize == last_acked_packNum)
+                            int checkVal = (myClient.mySendingBase + i) % myClient.windowBufferSize;
+                            int checkVal2 = (myClient.mySendingBase+myClient.windowSize)%myClient.windowBufferSize;
+                            if(checkVal == last_acked_packNum && checkVal != checkVal2)
                             {
                                 myClient.inFlightPackets -= (i+1);
+                                myClient.mySendingBase = (last_acked_packNum+1)%myClient.windowBufferSize;
+                                myClient.stopTimer();
+                                break;
                             }
                         }
-                        myClient.mySendingBase = (last_acked_packNum+1)%myClient.windowBufferSize;
-                        myClient.stopTimer();
+
                         System.out.println("\nNewSendingBase = "+myClient.mySendingBase);
                     }
 
@@ -393,7 +376,7 @@ public class client
                         EOTFromServer = true;   //set EOT Flag
                     }
                     /**If last packet is detected*/
-                    if(is_last_packet && !EOTFromServer && !EOTSent && myClient.inFlightPackets == 0)
+                    if(is_last_packet && !EOTFromServer && !EOTSent && myClient.mySendingBase == myClient.getCurrentSeqNumber() /*&& myClient.inFlightPackets == 0*/)
                     {
                         //EOT packet
                         System.out.println("EOT Packet: "+myClient.getCurrentSeqNumber());
@@ -407,6 +390,11 @@ public class client
                     if(myClient.inFlightPackets < 0){
                         System.out.println("INFLIGHTPACKETS < 0");
                         break;
+                    }
+                    }catch(SocketTimeoutException e){
+                        System.out.println("-----Socket Timeout-----");
+                        myClient.stopTimer();
+                        myClient.startTimer();
                     }
                 }
                 myClient.closeServerConnection();
