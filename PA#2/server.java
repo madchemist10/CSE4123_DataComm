@@ -62,7 +62,6 @@ public class server {
                     this.receiveSocket.receive(receivePacket);
                     packet myPacket = deserializePacket(receivePacket.getData());
                     if (myPacket != null) { //if we have a valid packet
-//                        myPacket.printContents();
                         this.currentPacketNumber = myPacket.getSeqNum();    //retrieve sequence number
                         this.currentPacketType = myPacket.getType();    //retrieve packet type
                         System.out.println("Data packet received: " + this.currentPacketNumber);
